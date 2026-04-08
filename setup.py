@@ -30,9 +30,9 @@ def lib_ver():
             return ver_a[1]
     return 1.0
 
-pkg_name='GlobalEnv'
+pkg_name='globalenv'
 pkg_desc='Enginering useful library'
-pkg_git="https://github.com/kagepark/globalenv"
+pkg_git="https://github.com/kagepark/GlobalEnv"
 long_description=''
 if os.path.isfile('README.md'):
     with open("README.md", "r") as fh:
