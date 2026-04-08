@@ -1,19 +1,15 @@
-class Environment:
-    """이름별 글로벌 싱글톤 딕셔너리 클래스
-    로보프레임워크와 일반 파이썬에서 공유하여 사용 가능
-    """
-    _instances = {} # name → instance (싱글톤 관리)
+import os
 
+class Environment:
+    _instances = {}
     def __new__(cls, name='settings', **initial_data):
         if not name or not isinstance(name, str):
             name = 'settings'
-
         if name not in cls._instances:
             instance = super().__new__(cls)
             instance._name = name
             instance.settings = {}
             cls._instances[name] = instance
-
         instance = cls._instances[name]
         if initial_data:
             instance.update(**initial_data)
@@ -22,64 +18,56 @@ class Environment:
     def name(self):
         return self._name
 
+    def pop(self,name,default=None):
+        if name in self.settings:
+            return self.settings.pop(name)
+        return default
+
     def reset(self, **kwargs):
         self.settings = {}
         if kwargs:
             self.update(**kwargs)
 
     def _resolve_path(self, data, key, path=False):
+        moved=[]
         if not (isinstance(path, str) and len(path) == 1 and isinstance(key, str) and key):
-            return data, key
-
+            return data, key, moved
         parts = key.split(path)
         if len(parts) <= 1:
-            return data, key
-
+            return data, key, moved
         for p in parts[:-1]:
             if not p: continue
             if isinstance(data, dict) and p in data and isinstance(data[p], dict):
+                moved.append(p)
                 data = data[p]
             else:
-                return None, None
-        return data, parts[-1]
+                return None, None, moved
+        return data, parts[-1], moved
 
     def get(self, key=None, default=None, all_key=False, split_symbol=',', path=False):
-        data, key = self._resolve_path(self.settings, key, path)
+        data, key, dummy = self._resolve_path(self.settings, key, path)
         if data is None or not isinstance(data, dict):
             return default if not all_key else [default]
-
         if key is None:
             return data
-
         if isinstance(key, str) and split_symbol in key:
             key = key.split(split_symbol)
-
         if isinstance(key, (list, tuple)):
             results = [data.get(k, default) for k in key]
             return results if all_key else next((v for v in results if v != default), default)
         return data.get(key, default)
 
     def set(self, key=None, value=None, path=False, merge=False, **kwargs):
-        """
-        key, value로 설정
-        merge=True 이면 value가 dict일 경우 기존 값과 merge 함
-        """
-        data, key = self._resolve_path(self.settings, key, path)
+        data, key, dummy = self._resolve_path(self.settings, key, path)
         if data is None or not isinstance(data, dict):
             return False
-
         if key is not None and value is not None:
             if merge and isinstance(value, dict) and isinstance(data.get(key), dict):
-                # 중첩 merge
-                data[key].update(value)          # 얕은 merge
-                # 깊은 merge를 원하면 deep_update 호출 가능
+                data[key].update(value)
             else:
                 data[key] = value
-
-        # **kwargs 처리
         for k, v in kwargs.items():
             data[k] = v
-
         return True
 
     def update(self, *dicts, level=-1, **kwargs):
@@ -101,7 +89,75 @@ class Environment:
             deep_merge(self.settings, kwargs)
         return True
 
-    # dict 호환 메서드들
+    def exists(self, key=None, default=False, all_key=False,split_symbol=',',rv={None},path=False):
+        # return : rv is bool then return True/False
+        #          rv is {None} then return key/default
+        # Check being key or not
+        #if path: all_key=True
+        data, key, cur = self._resolve_path(self.settings, key, path)
+        if isinstance(data,dict):
+            if not key:
+                if data: # any data then True when no key
+                    if rv in [bool,'bool']:
+                        return True
+                    else:
+                        return data
+            else:
+                if isinstance(key,str) and split_symbol in key:
+                    key=key.split(',')
+                if isinstance(key,(list,tuple)):
+                    out=[]
+                    for i in key:
+                        if all_key:
+                            if i in data:
+                                if rv in [bool,'bool']:
+                                    out.append(True)
+                                else:
+                                    out.append(os.path.join(*cur,i))
+                            else:
+                                if rv in [bool,'bool']:
+                                    out.append(False)
+                                else:
+                                    out.append(default)
+                        else:
+                            if i in data:
+                                #first any key found then return
+                                if rv in [bool,'bool']:
+                                    return True
+                                else:
+                                    return os.path.join(*cur,i)
+                    if all_key:
+                        #for all_key=True
+                        return out
+                    else:
+                        #not found case when all_key=False
+                        if rv in [bool,'bool']: #Not found
+                            return False
+                        return default
+                else:
+                    if key in data:
+                        if rv in [bool,'bool']:
+                            return True
+                        else:
+                            if all_key:
+                                return [os.path.join(*cur,key)]
+                            else:
+                                return os.path.join(*cur,key)
+        if all_key:
+            if rv in [bool,'bool']:
+                return [False]
+            return [default]
+        else:
+            if rv in [bool,'bool']:
+                return False
+            return default
+
+    def remove(self, key, split_symbol=',',path=False):  # Removed default parameter as it's not used
+        for k in self.exists(key,all_key=True,default=False,split_symbol=split_symbol,path=path):
+            if k is not False:
+                data, key, dummy = self._resolve_path(self.settings, k, path)
+                del data[key]
+
     def __iter__(self):
         return iter(self.settings)
 
@@ -121,4 +177,4 @@ class Environment:
         self.set(key, value)
 
     def __repr__(self):
-        return f"Environment(name='{self._name}', settings={self.settings})"
+        return f"Environment(name='{self._name}', settings={self.settings})"           
